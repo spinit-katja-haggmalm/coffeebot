@@ -14,7 +14,7 @@ The Hue Bridge has an API through which coffeebot sets the color of all connecte
 - Slowly flashing yellow: coffee is brewing
 - Green to Red gradient: coffee is done, with color shifting based on estimated coffee level (green = full, red = empty)
 
-The coffee level can be tracked over time using an optional decay rate configuration. When enabled, the lights will gradually shift from green to red as time passes since the coffee was brewed, providing a visual indication of how fresh the coffee is.
+The coffee level can be tracked over time using an optional consumption rate configuration. When enabled, the lights will gradually shift from green to red as coffee is consumed, providing a visual indication of how much coffee remains in the pot.
 
 ## How to Install the Bot
 
@@ -27,13 +27,13 @@ The instructions assumes a working Python 3 enviroment. On `apt`-based operating
 2. Copy `.env-template` to `.env`  and adjust the following environment variables to the .env file:
 
 ```sh
-USE_SLACK=                      # True if you want to send coffee updates to Slack
-SLACK_TOKEN=                    # Secret OAuth authentication token for the app in Slack (you need to add an app called "CoffeeBot" to your Slack workspace to generate one)
-CHANNEL_ID=                     # ID of the channel to post messages in Slack
-USE_HUE=                        # True if you want your Hue lights to reflect coffee status
-HUE_IP=                         # The local IP address of the Hue Bridge
-SENSOR_URL=                     # The complete URL to the Shelly Plug, e.g. "http://192.168.0.10/meter/0" without the quotes (see Shelly docs for more details)
-COFFEE_DECAY_RATE_PER_MINUTE=   # Optional: Rate at which coffee level decreases per minute (0.0 to 1.0, e.g., 0.05 = 5% per minute). Leave empty to disable.
+USE_SLACK=                           # True if you want to send coffee updates to Slack
+SLACK_TOKEN=                         # Secret OAuth authentication token for the app in Slack (you need to add an app called "CoffeeBot" to your Slack workspace to generate one)
+CHANNEL_ID=                          # ID of the channel to post messages in Slack
+USE_HUE=                             # True if you want your Hue lights to reflect coffee status
+HUE_IP=                              # The local IP address of the Hue Bridge
+SENSOR_URL=                          # The complete URL to the Shelly Plug, e.g. "http://192.168.0.10/meter/0" without the quotes (see Shelly docs for more details)
+COFFEE_CONSUMPTION_RATE_PER_MINUTE=  # Optional: Rate at which coffee is consumed per minute (0.0 to 1.0, e.g., 0.05 = 5% per minute). Leave empty to disable.
 ```
 
 3. Copy `hue-template` to `hue_username` and change to your username in the file

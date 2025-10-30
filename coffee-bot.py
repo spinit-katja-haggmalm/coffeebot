@@ -27,7 +27,7 @@ STATE = {
     "lastBrewTime": None,  # timestamp of last brew completion
 }
 MEASURE_INTERVAL = 5  # seconds
-COFFEE_DECAY_RATE = 0.0  # Percentage per minute (set via env var)
+COFFEE_CONSUMPTION_RATE = 0.0  # Percentage consumed per minute (set via env var)
 
 
 """
@@ -124,7 +124,7 @@ async def main() -> None:
 
 
 def loadAndCheckEnvironment():
-    global COFFEE_DECAY_RATE
+    global COFFEE_CONSUMPTION_RATE
     env_loaded = load_dotenv(".env")  # Load environment variables
     if (not env_loaded):
         logging.error("Could not load .env file. Exiting.")
@@ -137,15 +137,15 @@ def loadAndCheckEnvironment():
         logging.error("Could not parse SENSOR_URL in the file '.env'. Exiting.")
         quit(1)
     
-    # Load coffee level decay rate (optional, defaults to 0 for no decay)
+    # Load coffee consumption rate (optional, defaults to 0 for no automatic consumption)
     try:
-        decay_rate = os.getenv("COFFEE_DECAY_RATE_PER_MINUTE")
-        if decay_rate and decay_rate != "":
-            COFFEE_DECAY_RATE = float(decay_rate)
-            logging.info(f"Coffee decay rate set to {COFFEE_DECAY_RATE*100:.1f}% per minute")
+        consumption_rate = os.getenv("COFFEE_CONSUMPTION_RATE_PER_MINUTE")
+        if consumption_rate and consumption_rate != "":
+            COFFEE_CONSUMPTION_RATE = float(consumption_rate)
+            logging.info(f"Coffee consumption rate set to {COFFEE_CONSUMPTION_RATE*100:.1f}% per minute")
     except (ValueError, TypeError):
-        logging.warning("Invalid COFFEE_DECAY_RATE_PER_MINUTE value, using default (0)")
-        COFFEE_DECAY_RATE = 0.0
+        logging.warning("Invalid COFFEE_CONSUMPTION_RATE_PER_MINUTE value, using default (0)")
+        COFFEE_CONSUMPTION_RATE = 0.0
 
     try:
         use_slack = os.getenv("USE_SLACK") == "True"
@@ -253,29 +253,29 @@ def calculateColorFromLevel(level: float) -> tuple[float, float]:
 
 """
 Update coffee level based on time elapsed since last brew.
-Decreases level based on COFFEE_DECAY_RATE.
+Decreases level based on COFFEE_CONSUMPTION_RATE (amount consumed per minute).
 
 Note: This function recalculates from the original brew time (lastBrewTime) each time,
-rather than incrementally decaying from the current level. This approach avoids
+rather than incrementally consuming from the current level. This approach avoids
 accumulating rounding errors and ensures consistent results regardless of how often
 the function is called.
 """
 
 
 def updateCoffeeLevel() -> None:
-    # Early return if decay is disabled
-    if COFFEE_DECAY_RATE <= 0.0:
+    # Early return if consumption tracking is disabled
+    if COFFEE_CONSUMPTION_RATE <= 0.0:
         return
     
     # Early return if no brew time set or already empty
     if STATE["lastBrewTime"] is None or STATE["coffeeLevel"] <= 0.0:
         return
     
-    # Calculate time elapsed since brew and update level
+    # Calculate time elapsed since brew and update level based on consumption
     # Always recalculate from brew time to avoid accumulating errors
     elapsed_minutes = (time.time() - STATE["lastBrewTime"]) / 60.0
-    decay = COFFEE_DECAY_RATE * elapsed_minutes
-    STATE["coffeeLevel"] = max(0.0, 1.0 - decay)
+    consumed = COFFEE_CONSUMPTION_RATE * elapsed_minutes
+    STATE["coffeeLevel"] = max(0.0, 1.0 - consumed)
     
     logging.debug(f"Coffee level: {STATE['coffeeLevel']*100:.1f}%")
 
