@@ -254,16 +254,25 @@ def calculateColorFromLevel(level: float) -> tuple[float, float]:
 """
 Update coffee level based on time elapsed since last brew.
 Decreases level based on COFFEE_DECAY_RATE.
+
+Note: This function recalculates from the original brew time (lastBrewTime) each time,
+rather than incrementally decaying from the current level. This approach avoids
+accumulating rounding errors and ensures consistent results regardless of how often
+the function is called.
 """
 
 
 def updateCoffeeLevel() -> None:
-    if STATE["lastBrewTime"] is None or STATE["coffeeLevel"] <= 0.0:
-        return
-    
+    # Early return if decay is disabled
     if COFFEE_DECAY_RATE <= 0.0:
         return
     
+    # Early return if no brew time set or already empty
+    if STATE["lastBrewTime"] is None or STATE["coffeeLevel"] <= 0.0:
+        return
+    
+    # Calculate time elapsed since brew and update level
+    # Always recalculate from brew time to avoid accumulating errors
     elapsed_minutes = (time.time() - STATE["lastBrewTime"]) / 60.0
     decay = COFFEE_DECAY_RATE * elapsed_minutes
     STATE["coffeeLevel"] = max(0.0, 1.0 - decay)
