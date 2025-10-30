@@ -19,8 +19,15 @@ from db.mongodb import MongoDb
 from dotenv import load_dotenv
 
 # Dict representing brewer state
-STATE = {"brewing": False, "turnedOff": True, "coffeeDone": False}
+STATE = {
+    "brewing": False,
+    "turnedOff": True,
+    "coffeeDone": False,
+    "coffeeLevel": 0.0,  # 0.0 (empty) to 1.0 (full)
+    "lastBrewTime": None,  # timestamp of last brew completion
+}
 MEASURE_INTERVAL = 5  # seconds
+COFFEE_DECAY_RATE = 0.0  # Percentage per minute (set via env var)
 
 
 """
@@ -66,6 +73,17 @@ async def main() -> None:
             quit(1)
 
     while (True):
+        # Update coffee level based on time elapsed
+        prev_level = STATE["coffeeLevel"]
+        updateCoffeeLevel()
+        
+        # Update lights if coffee level changed significantly (more than 1%) and coffee is done
+        if (hue and STATE["coffeeDone"] and not STATE["brewing"] 
+            and abs(prev_level - STATE["coffeeLevel"]) > 0.01):
+            color_x, color_y = calculateColorFromLevel(STATE["coffeeLevel"])
+            hue.setAllLightsV2(color_x, color_y)
+            logging.debug(f"Updated light color for coffee level: {STATE['coffeeLevel']*100:.1f}%")
+        
         power = await measure(sensor_url, db=db)
         if (power == -1.0):
             # Power is still changing or an exception occured, wait and measure again
@@ -97,7 +115,7 @@ async def main() -> None:
         elif (power == 0.0 and not STATE["turnedOff"]):
             coffeeMakerTurnedOff(hue, slack)
 
-        # Idle, don't send messages
+        # Idle, don't send messages but still update coffee level
         elif (power == 0.0 and STATE["turnedOff"]):
             time.sleep(MEASURE_INTERVAL)
             continue
@@ -106,6 +124,7 @@ async def main() -> None:
 
 
 def loadAndCheckEnvironment():
+    global COFFEE_DECAY_RATE
     env_loaded = load_dotenv(".env")  # Load environment variables
     if (not env_loaded):
         logging.error("Could not load .env file. Exiting.")
@@ -117,6 +136,16 @@ def loadAndCheckEnvironment():
     except KeyError:
         logging.error("Could not parse SENSOR_URL in the file '.env'. Exiting.")
         quit(1)
+    
+    # Load coffee level decay rate (optional, defaults to 0 for no decay)
+    try:
+        decay_rate = os.getenv("COFFEE_DECAY_RATE_PER_MINUTE")
+        if decay_rate and decay_rate != "":
+            COFFEE_DECAY_RATE = float(decay_rate)
+            logging.info(f"Coffee decay rate set to {COFFEE_DECAY_RATE*100:.1f}% per minute")
+    except (ValueError, TypeError):
+        logging.warning("Invalid COFFEE_DECAY_RATE_PER_MINUTE value, using default (0)")
+        COFFEE_DECAY_RATE = 0.0
 
     try:
         use_slack = os.getenv("USE_SLACK") == "True"
@@ -200,6 +229,49 @@ async def measure(sensor_url: str, db: MongoDb | None) -> float:
 
 
 """
+Calculate Hue light color based on coffee level.
+Returns (x, y) coordinates for CIE color space.
+Green (full) to Red (empty) gradient.
+"""
+
+
+def calculateColorFromLevel(level: float) -> tuple[float, float]:
+    # Clamp level between 0.0 and 1.0
+    level = max(0.0, min(1.0, level))
+    
+    # Green color in CIE xy: (0.1673, 0.5968)
+    # Red color in CIE xy: (0.6758, 0.3008)
+    green_x, green_y = 0.1673, 0.5968
+    red_x, red_y = 0.6758, 0.3008
+    
+    # Linear interpolation from red (0%) to green (100%)
+    x = red_x + (green_x - red_x) * level
+    y = red_y + (green_y - red_y) * level
+    
+    return (x, y)
+
+
+"""
+Update coffee level based on time elapsed since last brew.
+Decreases level based on COFFEE_DECAY_RATE.
+"""
+
+
+def updateCoffeeLevel() -> None:
+    if STATE["lastBrewTime"] is None or STATE["coffeeLevel"] <= 0.0:
+        return
+    
+    if COFFEE_DECAY_RATE <= 0.0:
+        return
+    
+    elapsed_minutes = (time.time() - STATE["lastBrewTime"]) / 60.0
+    decay = COFFEE_DECAY_RATE * elapsed_minutes
+    STATE["coffeeLevel"] = max(0.0, 1.0 - decay)
+    
+    logging.debug(f"Coffee level: {STATE['coffeeLevel']*100:.1f}%")
+
+
+"""
 Resets global dict respresenting the brewer state
 """
 
@@ -208,6 +280,8 @@ def resetState() -> None:
     STATE["brewing"] = False
     STATE["turnedOff"] = True
     STATE["coffeeDone"] = False
+    STATE["coffeeLevel"] = 0.0
+    STATE["lastBrewTime"] = None
 
 
 """
@@ -222,7 +296,9 @@ def heatingOldCoffee(hue: Hue | None, slack: Slack | None) -> None:
         slack.postMessage(slack.messages["saving"])
 
     if (hue):
-        hue.setAllLightsV2(0.1673, 0.5968)  # green
+        # Use dynamic color based on current coffee level
+        color_x, color_y = calculateColorFromLevel(STATE["coffeeLevel"])
+        hue.setAllLightsV2(color_x, color_y)
 
     STATE["coffeeDone"] = True
     STATE["turnedOff"] = False
@@ -244,12 +320,19 @@ def coffeeIsBrewing(hue: Hue | None, slack: Slack | None) -> None:
 def freshCoffeeHasBeenMade(hue: Hue | None, slack: Slack | None) -> None:
     time.sleep(30)  # Wait 30 seconds for coffee to drip down
     logging.info("Fresh coffee has been made.")
+    
+    # Set coffee level to full and record the time
+    STATE["coffeeLevel"] = 1.0
+    STATE["lastBrewTime"] = time.time()
+    
     if (slack):
         slack.deleteLastMessage()
         slack.postMessage(slack.messages["done"])
 
     if (hue):
-        hue.setAllLightsV2(0.1673, 0.5968)  # green
+        # Set to green (full pot)
+        color_x, color_y = calculateColorFromLevel(STATE["coffeeLevel"])
+        hue.setAllLightsV2(color_x, color_y)
 
     STATE["coffeeDone"] = True
     STATE["brewing"] = False
